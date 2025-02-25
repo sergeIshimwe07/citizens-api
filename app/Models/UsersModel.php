@@ -9,7 +9,7 @@ class UsersModel extends Model {
 
     protected $primaryKey = 'id';
 
-    protected $allowedFields = ['id','title', 'names', 'email','phone', 'location', 'id_number', 'password', 'type', 'status'];
+    protected $allowedFields = ['id','title', 'names', 'email','phone', 'location', 'id_number', 'password', 'type','mentor_type', 'status'];
     protected $useTimestamps = true;
 
     public function checkUser($value, $key = "login"){

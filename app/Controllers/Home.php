@@ -6,6 +6,7 @@ use App\Models\IssuesModel;
 use App\Models\IssueCategoriesModel;
 use App\Models\AppointmentsModel;
 use App\Models\UsersModel;
+use App\Models\MentorshipTypesModel;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\Xls;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -265,6 +266,13 @@ class Home extends BaseController
         $this->_secure();
         $mdl = new AppointmentsModel();
         $result = $mdl->find($id);
+        return $this->response->setJSON($result);
+    }
+    public function getMentorshipTypes()
+    {
+        $this->_secure();
+        $mdl = new MentorshipTypesModel();
+        $result = $mdl->findAll();
         return $this->response->setJSON($result);
     }
     //create appointment
