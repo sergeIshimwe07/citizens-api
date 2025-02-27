@@ -89,7 +89,7 @@ abstract class BaseController extends Controller
         return $pass;
     }
 
-    public function sendMail(string $email, string $subject, string $msg, String $institution = 'Tubura'): bool
+    public function sendMail(string $email, string $subject, string $msg, String $institution = 'Village Issues and Mentorship Management System'): bool
     {
         $email1 = \Config\Services::email();
         $config = array("SMTPHost" => "mail.qonics.com", "SMTPUser" => "guarsy@qonics.com", "SMTPPass" => "9MNa3Vm065RQ"

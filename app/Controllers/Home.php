@@ -73,23 +73,31 @@ class Home extends BaseController
                             "name" => $result->names,
                             'email' => $result->email,
                             "uid" => $result->id,
-                            "lct" => $result->location,
                             "dnm" => $result->title ?? '',
                             "typ" => $result->type,
-                            "mnttyp" => $result->mentorship_type
+                            "mnttyp" => $result->mentor_type
                         );
                         $key = getenv('JWT_SECRET');
                         $token = JWT::encode($payload, $key, 'HS256');
 
+                        $redirect = '';
+                        if ($result->type == 1) {
+                            $redirect = '/users';
+                        } else if ($result->type == 2) {
+                            $redirect = '/issues';
+                        } else if ($result->type == 3) {
+                            $redirect = '/appointments';
+                        } else if ($result->type == 4) {
+                            $redirect = '/issues';
+                        }
                         $data = array(
                             "uid" => $result->id,
                             "name" => $result->names,
                             'email' => $result->email,
                             "token" => $token,
-                            "location" => $result->location,
-                            "district" => $result->title ?? '',
                             "type" => $result->type,
-                            "mentorship_type" => $result->mentorship_type
+                            "mentor_type" => $result->mentor_type,
+                            "redirect" => $redirect
                         );
                         return $this->response->setStatusCode(200)->setJSON($data);
                     } else {
@@ -113,8 +121,7 @@ class Home extends BaseController
         $mdl = new IssuesModel();
         $resultBuilder = $mdl->select("issues.id, issues.title, issues.details, ic.title as category, u.names as citizen, issues.status, issues.created_at")
             ->join('issue_categories ic', 'ic.id = issues.category_id')
-            ->join('users u', 'u.id = issues.user_id')
-            ->where('issues.location_id', $this->accessData->lct);
+            ->join('users u', 'u.id = issues.user_id');
 
         if ($this->accessData->typ == '3') {
             $resultBuilder->where('issues.user_id', $this->accessData->uid);
@@ -205,7 +212,6 @@ class Home extends BaseController
             'details' => $input->details,
             'category_id' => $input->category_id,
             'user_id' => $this->accessData->uid,
-            'location_id' => $this->accessData->lct,
             'status' => 0,
             'operator' => $this->accessData->uid
         ];
@@ -274,11 +280,11 @@ class Home extends BaseController
     {
         $this->_secure();
         $mdl = new AppointmentsModel();
-        $resultBuilder = $mdl->select("appointments.id, appointments.location_id,COALESCE(date,'-') as date,COALESCE(time,'-') as time, l.name as location, mt.title as type, appointments.citizen_id, appointments.status, appointments.created_at, u.names as citizen")
+        $resultBuilder = $mdl->select("appointments.id,COALESCE(date,'-') as date,COALESCE(time,'-') as time,  mt.title as type, appointments.citizen_id, appointments.status, appointments.created_at, u.names as citizen")
             ->join('users u', 'u.id = appointments.citizen_id')
-            ->join('locations l', 'l.id = appointments.location_id')
             ->join('mentorship_types mt', 'mt.id = appointments.mentorship_type')
-            ->where('appointments.location_id', $this->accessData->lct);
+            ->groupBy('appointments.id')
+            ->orderBy('appointments.updated_at', 'DESC');
 
         if ($this->accessData->typ == '3') {
             $resultBuilder->where('appointments.citizen_id', $this->accessData->uid);
@@ -310,31 +316,29 @@ class Home extends BaseController
         $this->_secure();
         $mdl = new AppointmentsModel();
         $input = $this->request->getJSON();
-        $data = [
-            'location_id' => $this->accessData->lct,
-        ];
-        if(!empty($input->date)){
+        $data = [];
+        if (!empty($input->date)) {
             $data['date'] = $input->date;
         }
-        if(!empty($input->time)){
+        if (!empty($input->time)) {
             $data['time'] = $input->time;
         }
-        if(!empty($input->status)){
+        if (!empty($input->status)) {
             $data['status'] = $input->status;
         } else {
             $data['status'] = 0;
         }
-        if(!empty($input->type)){
+        if (!empty($input->type)) {
             $data['mentorship_type'] = $input->type;
         } else {
             $data['mentorship_type'] = $this->accessData->mnttyp;
         }
-        if(!empty($input->citizen_id)){
+        if (!empty($input->citizen_id)) {
             $data['citizen_id'] = $input->citizen_id;
         } else {
             $data['citizen_id'] = $this->accessData->uid;
         }
-        if(!empty($input->id)){
+        if (!empty($input->id)) {
             $data['id'] = $input->id;
         }
         $mdl->save($data);
@@ -350,10 +354,10 @@ class Home extends BaseController
         $data = [
             'status' => $input->status
         ];
-        if(!empty($input->date)){
+        if (!empty($input->date)) {
             $data['date'] = $input->date;
         }
-        if(!empty($input->time)){
+        if (!empty($input->time)) {
             $data['time'] = $input->time;
         }
         $mdl->update($input->id, $data);
@@ -368,7 +372,7 @@ class Home extends BaseController
         $mdl->delete($id);
         return $this->response->setJSON(['message' => 'Appointment deleted successfully']);
     }
-    //get all users where status is less than 4 (active) and join with locations to get location name
+    //get all users where status is less than 4 (active)
     public function getUsers()
     {
         $this->_secure();
@@ -378,9 +382,8 @@ class Home extends BaseController
             WHEN '2' THEN 'Leader' 
             WHEN '3' THEN 'Mentor'
             ELSE '-'
-            END as type, users.status, l.name as location")
-            ->join('locations l', 'l.id = users.location')
-            ->where('users.status <', 4)
+            END as type, users.status")
+            ->where('users.type <', 4)
             ->get()->getResultArray();
         return $this->response->setJSON($result);
     }
@@ -396,9 +399,9 @@ class Home extends BaseController
                 'names' => $input->names,
                 'email' => $input->email,
                 'phone' => $input->phone,
-                'id_number' => $input->id_number,
-                'location' => $input->location,
+                'id_number' => $input->idNumber,
                 'type' => $input->type,
+                'mentor_type' => $input->type == 3 ? $input->mentorType : 0,
                 'status' => 1,
                 'password' => password_hash($password, PASSWORD_DEFAULT)
             ];
@@ -413,21 +416,18 @@ class Home extends BaseController
             return $this->response->setStatusCode(500)->setJSON(["message" => $e->getMessage()]);
         }
     }
-    // Get all users where status is 4 (active) and join with locations to get location name
+    // Get all users where status is 4 (active)
     public function getActiveResidents()
     {
         $this->_secure();
         $mdl = new UsersModel();
-        $result = $mdl->select("users.id, users.names, users.email, users.phone, users.id_number, 'Resident' as type, users.status, l.name as location,
-            COUNT(DISTINCT i.id) as total_issues,
-            COUNT(DISTINCT CASE WHEN i.status = 1 THEN i.id END) as resolved_issues,
-            COUNT(DISTINCT a.id) as total_appointments,
-            COUNT(DISTINCT CASE WHEN a.status = 1 THEN a.id END) as approved_appointments")
-            ->join('locations l', 'l.id = users.location')
-            ->join('issues i', 'i.user_id = users.id')
-            ->join('appointments a', 'a.citizen_id = users.id')
-            ->where('users.status', 4)
-            ->groupBy('users.id, users.names, users.email, users.phone, users.id_number, users.status, l.name')
+        $result = $mdl->select("users.id, users.names, users.email, users.phone, users.id_number, 'Resident' as type, users.status, COALESCE(s.total_issues, 0) as total_issues, COALESCE(s.resolved_issues, 0) as resolved_issues, COALESCE(ap.total_appointments, 0) as total_appointments, COALESCE(ap.approved_appointments, 0) as approved_appointments")
+            ->join('issues i', 'i.user_id = users.id', 'left')
+            ->join('appointments a', 'a.citizen_id = users.id', 'left')
+            ->join('(Select COUNT(id) as total_issues, COUNT(CASE WHEN status = 1 THEN id END) as resolved_issues, user_id from issues group by user_id) s', 's.user_id = users.id', 'left')
+            ->join('(Select COUNT(id) as total_appointments, COUNT(CASE WHEN status = 1 THEN id END) as approved_appointments, citizen_id from appointments group by citizen_id) ap', 'ap.citizen_id = users.id', 'left')
+            ->where('users.type', 4)
+            ->groupBy('users.id')
             ->get()->getResultArray();
         return $this->response->setJSON($result);
     }
@@ -443,18 +443,84 @@ class Home extends BaseController
             ->get()->getResultArray();
         return $this->response->setJSON($result);
     }
-
-    //select all villages from locations located in the same district as the logged in user
-    public function getVillages()
+    public function changePassword()
+	{
+		$this->_secure();
+		$input = $this->request->getJSON();
+		$logger = $this->accessData->uid;
+		$formPassword = $input->current;
+		$newPassword = $input->newPassword;
+		$confirmPassword = $input->confirm;
+		if ($newPassword != $confirmPassword) {
+			return $this->response->setJSON(array(
+				"type" => "error", "message" => "New password is not confirmed"
+			));
+		}
+		$userModel = new UsersModel();
+		$password = $userModel->select("password")->where("id", $logger)->get()->getRowArray();
+		if (password_verify($formPassword, $password['password'])) {
+			$data = array(
+				"id" => $logger,
+				"password" => password_hash($newPassword, PASSWORD_DEFAULT)
+			);
+			try {
+				$userModel->save($data);
+				return $this->response->setJSON([
+					"type" => "success", "message" => "Password changed successfully"
+				]);
+			} catch (\Exception $e) {
+				return $this->response->setStatusCode(500)->setJSON(array(
+					"error" => "Error occurred", "message" => $e->getMessage()
+				));
+			}
+		} else {
+			return $this->response->setJSON(array(
+				"tyoe" => "error", "message" => "Invalid Current Password"
+			));
+		}
+	}
+    public function createAccount()
     {
-        $this->_secure();
-        $mdl = new LocationsModel();
-        $result = $mdl->select("id, name")
-            ->join('locations l0', 'l0.id = locations.parent_id')
-            ->join('locations l1', 'l1.id = l0.parent_id')
-            ->where('l1.id', $this->accessData->lct)
-            ->get()->getResultArray();
-        return $this->response->setJSON($result);
-    }
+        $this->appendHeader();
+        $mdl = new UsersModel();
+        $input = $this->request->getJSON();
 
+        try {
+            $data = [
+                'names' => $input->names,
+                'phone' => $input->phone,
+                'email' => $input->email,
+                'id_number' => $input->isibo,
+                'type' => 4,
+                'status' => 1,
+                'password' => password_hash($input->password, PASSWORD_DEFAULT)
+            ];
+            $id = $mdl->insert($data);
+
+            $payload = array(
+                "iat" => time(),
+                "name" => $input->names,
+                'email' => $input->email,
+                "uid" => $id,
+                "dnm" => '',
+                "typ" => 4,
+                "mnttyp" => 0
+            );
+            $key = getenv('JWT_SECRET');
+            $token = JWT::encode($payload, $key, 'HS256');
+
+            $responseData = array(
+                "uid" => $id,
+                "name" => $input->names,
+                'email' => $input->email,
+                "token" => $token,
+                "type" => 4,
+                "mentor_type" => 0,
+                "redirect" => '/issues'
+            );
+            return $this->response->setStatusCode(201)->setJSON($responseData);
+        } catch (\Exception $e) {
+            return $this->response->setStatusCode(500)->setJSON(['message' => $e->getMessage()]);
+        }
+    }
 }
