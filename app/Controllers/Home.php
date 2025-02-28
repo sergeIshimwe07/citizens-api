@@ -123,7 +123,7 @@ class Home extends BaseController
             ->join('issue_categories ic', 'ic.id = issues.category_id')
             ->join('users u', 'u.id = issues.user_id');
 
-        if ($this->accessData->typ == '3') {
+        if ($this->accessData->typ == '4') {
             $resultBuilder->where('issues.user_id', $this->accessData->uid);
         }
         if (!empty($limit)) {
@@ -286,7 +286,7 @@ class Home extends BaseController
             ->groupBy('appointments.id')
             ->orderBy('appointments.updated_at', 'DESC');
 
-        if ($this->accessData->typ == '3') {
+        if ($this->accessData->typ == '4') {
             $resultBuilder->where('appointments.citizen_id', $this->accessData->uid);
         }
         if (!empty($limit)) {
@@ -377,14 +377,20 @@ class Home extends BaseController
     {
         $this->_secure();
         $mdl = new UsersModel();
-        $result = $mdl->select("users.id, users.names, users.email, users.phone, users.id_number, CASE users.type 
+        $resultBuilder = $mdl->select("users.id, users.names, users.email, users.phone, users.id_number, CASE users.type 
             WHEN '1' THEN 'Admin'
             WHEN '2' THEN 'Leader' 
             WHEN '3' THEN 'Mentor'
             ELSE '-'
             END as type, users.status")
-            ->where('users.type <', 4)
-            ->get()->getResultArray();
+            ->where('users.type <', 4);
+        
+        if ($this->accessData->typ == '2') {
+            $resultBuilder->where('user.type', 3);
+        } else if($this->accessData->typ == '2') {
+            $resultBuilder->where('user.type < ', 4);
+        }
+        $result = $resultBuilder->get()->getResultArray();
         return $this->response->setJSON($result);
     }
     //create user and generate rangom password then send email to user, there is no title in the user table
