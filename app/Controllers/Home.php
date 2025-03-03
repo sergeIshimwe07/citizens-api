@@ -114,7 +114,7 @@ class Home extends BaseController
             return $this->response->setStatusCode(403)->setJSON(array("error" => lang('invalidLogin'), "message" => lang('app.provideRequiredData') . $e->getMessage()));
         }
     }
-    function getIssues($output = 0, $limit = '', $token = '')
+    function getIssues($output = 0, $token = '')
     {
         empty($token) ? $this->_secure() : $this->_secure($token);
         // $this->appendHeader();
@@ -126,10 +126,10 @@ class Home extends BaseController
         if ($this->accessData->typ == '4') {
             $resultBuilder->where('issues.user_id', $this->accessData->uid);
         }
-        if (!empty($limit)) {
-            $result = $resultBuilder->limit($limit);
-        }
         $result = $resultBuilder->get()->getResultArray();
+        if (empty($result)) {
+            return $this->response->setStatusCode(404)->setJSON(["message" => "No data found"]);
+        }
         if ($output != 0) {
             try {
                 $spreadsheet = new Spreadsheet();
@@ -156,10 +156,10 @@ class Home extends BaseController
                 ];
                 $worksheet->getStyle('A3:F3')->applyFromArray($styleArray);
                 $worksheet->getCell('A3')->setValue('#');
-                $worksheet->getCell('B3')->setValue('Names');
-                $worksheet->getCell('C3')->setValue('Success factor ID');
-                $worksheet->getCell('D3')->setValue('District');
-                $worksheet->getCell('E3')->setValue('Site');
+                $worksheet->getCell('B3')->setValue('Citizen');
+                $worksheet->getCell('C3')->setValue('Category');
+                $worksheet->getCell('D3')->setValue('Title');
+                $worksheet->getCell('E3')->setValue('Status');
                 $worksheet->getCell('F3')->setValue('Date');
 
                 $i = 4;
@@ -167,30 +167,28 @@ class Home extends BaseController
 
 
                     $worksheet->getCell('A' . $i)->setValue($res['id']);
-                    $worksheet->getCell('B' . $i)->setValue($res['names']);
-                    $worksheet->getCell('C' . $i)->setValue($res['sfid']);
-                    $worksheet->getCell('D' . $i)->setValue($res['district']);
-                    $worksheet->getCell('E' . $i)->setValue($res['sector']);
-                    $worksheet->getCell('F' . $i)->setValue($res['event_date']);
+                    $worksheet->getCell('B' . $i)->setValue($res['citizen']);
+                    $worksheet->getCell('C' . $i)->setValue($res['category']);
+                    $worksheet->getCell('D' . $i)->setValue($res['title']);
+                    $worksheet->getCell('E' . $i)->setValue($res['status']);
+                    $worksheet->getCell('F' . $i)->setValue($res['created_at']);
 
                     $worksheet->getRowDimension($i)->setRowHeight(20);
 
                     $i++;
                 }
-                $worksheet->setTitle("List of Attendiese");
+                $worksheet->setTitle("List of Issues");
                 $worksheet->getTabColor()->setARGB('FF058e8c');
                 $writer = IOFactory::createWriter($spreadsheet, 'Xls');
                 header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
                 header('Access-Control-Expose-Headers: Content-Disposition');
-                header('Content-Disposition: attachment; filename="List of Attendiese - ' . date('Y-m-d') . '.xls"');
+                header('Content-Disposition: attachment; filename="List of Issues - ' . date('Y-m-d') . '.xls"');
                 $writer->save("php://output");
             } catch (\Exception $e) {
                 return $this->response->setStatusCode(500)->setJSON(["message" => $e->getMessage()]);
             }
         }
-        if (empty($result)) {
-            return $this->response->setStatusCode(404)->setJSON(["message" => "No data found"]);
-        }
+
         return $this->response->setJSON($result);
     }
     //get issue categories
@@ -260,12 +258,26 @@ class Home extends BaseController
     }
 
     //delete issue
-    public function deleteIssue($id)
+    public function deleteIssue()
     {
         $this->_secure();
         $mdl = new IssuesModel();
-        $mdl->delete($id);
-        return $this->response->setJSON(['message' => 'Issue deleted successfully']);
+        $input = $this->request->getJSON();
+        try {
+            $issue = $mdl->find($input->id);
+            if (!$issue) {
+                return $this->response->setStatusCode(404)->setJSON(['error' => 'Not Found', 'message' => 'Issue not found']);
+            }
+            if ($issue && $issue['user_id'] != $this->accessData->uid) {
+                return $this->response->setStatusCode(403)->setJSON(['error' => 'Forbidden', 'message' => 'You are not allowed to delete this issue']);
+            } else if ($issue && $issue['status'] != 0) {
+                return $this->response->setStatusCode(403)->setJSON(['error' => 'Forbidden', 'message' => 'You can\'t delete active or closed issue']);
+            }
+            $mdl->delete($input->id);
+            return $this->response->setJSON(['message' => 'Issue deleted successfully']);
+        } catch (\Exception $e) {
+            return $this->response->setStatusCode(500)->setJSON(['error' => 'Error occurred', 'message' => $e->getMessage()]);
+        }
     }
     //get issue by id
     public function getIssue($id)
@@ -276,9 +288,9 @@ class Home extends BaseController
         return $this->response->setJSON($result);
     }
     //get appointments 
-    public function getAppointments($limit = '')
+    public function getAppointments($output = 0, $token = '')
     {
-        $this->_secure();
+        empty($token) ? $this->_secure() : $this->_secure($token);
         $mdl = new AppointmentsModel();
         $resultBuilder = $mdl->select("appointments.id,COALESCE(date,'-') as date,COALESCE(time,'-') as time,  mt.title as type, appointments.citizen_id, appointments.status, appointments.created_at, u.names as citizen")
             ->join('users u', 'u.id = appointments.citizen_id')
@@ -289,10 +301,68 @@ class Home extends BaseController
         if ($this->accessData->typ == '4') {
             $resultBuilder->where('appointments.citizen_id', $this->accessData->uid);
         }
-        if (!empty($limit)) {
-            $result = $resultBuilder->limit($limit);
-        }
+
         $result = $resultBuilder->get()->getResultArray();
+        if ($output != 0) {
+            try {
+                $spreadsheet = new Spreadsheet();
+                $worksheet = $spreadsheet->getActiveSheet();
+                $styleArray = [
+                    'borders' => [
+                        'allBorders' => [
+                            'borderStyle' => Border::BORDER_HAIR,
+                            'color' => ['argb' => 'FFFFFFFF'],
+                            'size' => $spreadsheet->getDefaultStyle()->getFont()->setSize(14)
+                        ]
+                    ],
+                    'fill' => [
+                        'fillType' => Fill::FILL_SOLID,
+                        'startColor' => ['argb' => 'FF058e8c'],
+                    ],
+                    'font' => [
+                        'bold' => true,
+                        'color' => ['argb' => 'FFFFFFFF'],
+                    ],
+                    'alignment' => [
+                        'vertical' => Alignment::VERTICAL_CENTER
+                    ]
+                ];
+                $worksheet->getStyle('A3:G3')->applyFromArray($styleArray);
+                $worksheet->getCell('A3')->setValue('#');
+                $worksheet->getCell('B3')->setValue('Citizen');
+                $worksheet->getCell('C3')->setValue('Date');
+                $worksheet->getCell('D3')->setValue('Time');
+                $worksheet->getCell('E3')->setValue('Date');
+                $worksheet->getCell('F3')->setValue('Type');
+                $worksheet->getCell('G3')->setValue('Status');
+
+                $i = 4;
+                foreach ($result as $res) {
+
+
+                    $worksheet->getCell('A' . $i)->setValue($res['id']);
+                    $worksheet->getCell('B' . $i)->setValue($res['citizen']);
+                    $worksheet->getCell('C' . $i)->setValue($res['date']);
+                    $worksheet->getCell('D' . $i)->setValue($res['time']);
+                    $worksheet->getCell('E' . $i)->setValue($res['created_at']);
+                    $worksheet->getCell('F' . $i)->setValue($res['type']);
+                    $worksheet->getCell('G' . $i)->setValue($res['status']);
+
+                    $worksheet->getRowDimension($i)->setRowHeight(20);
+
+                    $i++;
+                }
+                $worksheet->setTitle("List of Appointments");
+                $worksheet->getTabColor()->setARGB('FF058e8c');
+                $writer = IOFactory::createWriter($spreadsheet, 'Xls');
+                header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                header('Access-Control-Expose-Headers: Content-Disposition');
+                header('Content-Disposition: attachment; filename="List of Appointments - ' . date('Y-m-d') . '.xls"');
+                $writer->save("php://output");
+            } catch (\Exception $e) {
+                return $this->response->setStatusCode(500)->setJSON(["message" => $e->getMessage()]);
+            }
+        }
         return $this->response->setJSON($result);
     }
     //get appointment by id
@@ -365,12 +435,26 @@ class Home extends BaseController
     }
 
     //delete appointment
-    public function deleteAppointment($id)
+    public function deleteAppointment()
     {
         $this->_secure();
         $mdl = new AppointmentsModel();
-        $mdl->delete($id);
-        return $this->response->setJSON(['message' => 'Appointment deleted successfully']);
+        $input = $this->request->getJSON();
+        try {
+            $appointment = $mdl->find($input->id);
+            if(!$appointment){
+                return $this->response->setStatusCode(404)->setJSON(['error' => 'Not Found', 'message' => 'Appointment not found']);
+            }
+            if ($appointment && $appointment['citizen_id'] != $this->accessData->uid) {
+                return $this->response->setStatusCode(403)->setJSON(['error' => 'Forbidden', 'message' => 'You are not allowed to delete this appointment']);
+            } else if ($appointment && $appointment['status'] != 0) {
+                return $this->response->setStatusCode(403)->setJSON(['error' => 'Forbidden', 'message' => 'You can\'t delete approved appointment']);
+            }
+            $mdl->delete($input->id);
+            return $this->response->setJSON(['message' => 'Appointment deleted successfully']);
+        } catch (\Exception $e) {
+            return $this->response->setStatusCode(500)->setJSON(['error' => 'Error occurred', 'message' => $e->getMessage()]);
+        }
     }
     //get all users where status is less than 4 (active)
     public function getUsers()
@@ -384,10 +468,10 @@ class Home extends BaseController
             ELSE '-'
             END as type, users.status")
             ->where('users.type <', 4);
-        
+
         if ($this->accessData->typ == '2') {
             $resultBuilder->where('user.type', 3);
-        } else if($this->accessData->typ == '2') {
+        } else if ($this->accessData->typ == '2') {
             $resultBuilder->where('user.type < ', 4);
         }
         $result = $resultBuilder->get()->getResultArray();
@@ -450,41 +534,45 @@ class Home extends BaseController
         return $this->response->setJSON($result);
     }
     public function changePassword()
-	{
-		$this->_secure();
-		$input = $this->request->getJSON();
-		$logger = $this->accessData->uid;
-		$formPassword = $input->current;
-		$newPassword = $input->newPassword;
-		$confirmPassword = $input->confirm;
-		if ($newPassword != $confirmPassword) {
-			return $this->response->setJSON(array(
-				"type" => "error", "message" => "New password is not confirmed"
-			));
-		}
-		$userModel = new UsersModel();
-		$password = $userModel->select("password")->where("id", $logger)->get()->getRowArray();
-		if (password_verify($formPassword, $password['password'])) {
-			$data = array(
-				"id" => $logger,
-				"password" => password_hash($newPassword, PASSWORD_DEFAULT)
-			);
-			try {
-				$userModel->save($data);
-				return $this->response->setJSON([
-					"type" => "success", "message" => "Password changed successfully"
-				]);
-			} catch (\Exception $e) {
-				return $this->response->setStatusCode(500)->setJSON(array(
-					"error" => "Error occurred", "message" => $e->getMessage()
-				));
-			}
-		} else {
-			return $this->response->setJSON(array(
-				"tyoe" => "error", "message" => "Invalid Current Password"
-			));
-		}
-	}
+    {
+        $this->_secure();
+        $input = $this->request->getJSON();
+        $logger = $this->accessData->uid;
+        $formPassword = $input->current;
+        $newPassword = $input->newPassword;
+        $confirmPassword = $input->confirm;
+        if ($newPassword != $confirmPassword) {
+            return $this->response->setStatusCode(403)->setJSON(array(
+                "type" => "error",
+                "message" => "New password is not confirmed"
+            ));
+        }
+        $userModel = new UsersModel();
+        $password = $userModel->select("password")->where("id", $logger)->get()->getRowArray();
+        if (password_verify($formPassword, $password['password'])) {
+            $data = array(
+                "id" => $logger,
+                "password" => password_hash($newPassword, PASSWORD_DEFAULT)
+            );
+            try {
+                $userModel->save($data);
+                return $this->response->setJSON([
+                    "type" => "success",
+                    "message" => "Password changed successfully"
+                ]);
+            } catch (\Exception $e) {
+                return $this->response->setStatusCode(500)->setJSON(array(
+                    "error" => "Error occurred",
+                    "message" => $e->getMessage()
+                ));
+            }
+        } else {
+            return $this->response->setStatusCode(500)->setJSON(array(
+                "tyoe" => "error",
+                "message" => "Invalid Current Password"
+            ));
+        }
+    }
     public function createAccount()
     {
         $this->appendHeader();
@@ -528,5 +616,21 @@ class Home extends BaseController
         } catch (\Exception $e) {
             return $this->response->setStatusCode(500)->setJSON(['message' => $e->getMessage()]);
         }
+    }
+
+    //update user status
+    public function changeUserStatus()
+    {
+        $this->_secure();
+        $mdl = new UsersModel();
+        $input = $this->request->getJSON();
+        if($this->accessData->typ > 2){ //only admin and leader can change user status
+            return $this->response->setStatusCode(403)->setJSON(['error' => 'Forbidden', 'message' => 'You are not allowed to change your status']);
+        }
+        $data = [
+            'status' => $input->status
+        ];
+        $mdl->update($input->id, $data);
+        return $this->response->setJSON(['message' => 'User status updated successfully']);
     }
 }
