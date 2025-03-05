@@ -9,7 +9,7 @@ class AppointmentsModel extends Model {
 
     protected $primaryKey = 'id';
 
-    protected $allowedFields = ['id', 'citizen_id','mentorship_type','date','time', 'status'];
+    protected $allowedFields = ['id', 'citizen_id','mentorship_type','date','time', 'feedback','status'];
     protected $useTimestamps = true;
 }
 

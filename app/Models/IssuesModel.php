@@ -9,7 +9,6 @@ class IssuesModel extends Model {
 
     protected $primaryKey = 'id';
 
-    protected $allowedFields = ['id','title', 'details', 'category_id', 'user_id', 'status', 'operator'];
+    protected $allowedFields = ['id','title', 'details', 'category_id', 'user_id','feedback', 'status', 'operator'];
     protected $useTimestamps = true;
 }
-

@@ -72,6 +72,7 @@ class Home extends BaseController
                             "iat" => time(),
                             "name" => $result->names,
                             'email' => $result->email,
+                            'phone' => $result->phone,
                             "uid" => $result->id,
                             "dnm" => $result->title ?? '',
                             "typ" => $result->type,
@@ -94,6 +95,7 @@ class Home extends BaseController
                             "uid" => $result->id,
                             "name" => $result->names,
                             'email' => $result->email,
+                            'phone' => $result->phone,
                             "token" => $token,
                             "type" => $result->type,
                             "mentor_type" => $result->mentor_type,
@@ -119,7 +121,7 @@ class Home extends BaseController
         empty($token) ? $this->_secure() : $this->_secure($token);
         // $this->appendHeader();
         $mdl = new IssuesModel();
-        $resultBuilder = $mdl->select("issues.id, issues.title, issues.details, ic.title as category, u.names as citizen, issues.status, issues.created_at")
+        $resultBuilder = $mdl->select("issues.id, issues.title, issues.details, ic.title as category,COALESCE(feedback, '-') as feedback, u.names as citizen, issues.status, issues.created_at")
             ->join('issue_categories ic', 'ic.id = issues.category_id')
             ->join('users u', 'u.id = issues.user_id');
 
@@ -154,13 +156,15 @@ class Home extends BaseController
                         'vertical' => Alignment::VERTICAL_CENTER
                     ]
                 ];
-                $worksheet->getStyle('A3:F3')->applyFromArray($styleArray);
+                $worksheet->getStyle('A3:G3')->applyFromArray($styleArray);
                 $worksheet->getCell('A3')->setValue('#');
                 $worksheet->getCell('B3')->setValue('Citizen');
                 $worksheet->getCell('C3')->setValue('Category');
                 $worksheet->getCell('D3')->setValue('Title');
                 $worksheet->getCell('E3')->setValue('Status');
                 $worksheet->getCell('F3')->setValue('Date');
+                $worksheet->getCell('G3')->setValue('Feedback');
+
 
                 $i = 4;
                 foreach ($result as $res) {
@@ -172,6 +176,7 @@ class Home extends BaseController
                     $worksheet->getCell('D' . $i)->setValue($res['title']);
                     $worksheet->getCell('E' . $i)->setValue($res['status']);
                     $worksheet->getCell('F' . $i)->setValue($res['created_at']);
+                    $worksheet->getCell('G' . $i)->setValue($res['feedback']);
 
                     $worksheet->getRowDimension($i)->setRowHeight(20);
 
@@ -243,6 +248,9 @@ class Home extends BaseController
             'status' => $input->status,
             'operator' => $this->accessData->uid
         ];
+        if ($input->feedback !== "") {
+            $data['feedback'] = $input->feedback;
+        }
         $mdl->save($data);
         //message based on status
         if ($input->status == 1) {
@@ -292,7 +300,7 @@ class Home extends BaseController
     {
         empty($token) ? $this->_secure() : $this->_secure($token);
         $mdl = new AppointmentsModel();
-        $resultBuilder = $mdl->select("appointments.id,COALESCE(date,'-') as date,COALESCE(time,'-') as time,  mt.title as type, appointments.citizen_id, appointments.status, appointments.created_at, u.names as citizen")
+        $resultBuilder = $mdl->select("appointments.id,COALESCE(date,'-') as date,COALESCE(time,'-') as time,COALESCE(feedback,'-') as feedback,  mt.title as type, appointments.citizen_id, appointments.status, appointments.created_at, u.names as citizen")
             ->join('users u', 'u.id = appointments.citizen_id')
             ->join('mentorship_types mt', 'mt.id = appointments.mentorship_type')
             ->groupBy('appointments.id')
@@ -327,14 +335,15 @@ class Home extends BaseController
                         'vertical' => Alignment::VERTICAL_CENTER
                     ]
                 ];
-                $worksheet->getStyle('A3:G3')->applyFromArray($styleArray);
+                $worksheet->getStyle('A3:H3')->applyFromArray($styleArray);
                 $worksheet->getCell('A3')->setValue('#');
                 $worksheet->getCell('B3')->setValue('Citizen');
                 $worksheet->getCell('C3')->setValue('Date');
                 $worksheet->getCell('D3')->setValue('Time');
                 $worksheet->getCell('E3')->setValue('Date');
                 $worksheet->getCell('F3')->setValue('Type');
-                $worksheet->getCell('G3')->setValue('Status');
+                $worksheet->getCell('G3')->setValue('Feedback');
+                $worksheet->getCell('H3')->setValue('Status');
 
                 $i = 4;
                 foreach ($result as $res) {
@@ -346,7 +355,8 @@ class Home extends BaseController
                     $worksheet->getCell('D' . $i)->setValue($res['time']);
                     $worksheet->getCell('E' . $i)->setValue($res['created_at']);
                     $worksheet->getCell('F' . $i)->setValue($res['type']);
-                    $worksheet->getCell('G' . $i)->setValue($res['status']);
+                    $worksheet->getCell('G' . $i)->setValue($res['feedback']);
+                    $worksheet->getCell('H' . $i)->setValue($res['status']);
 
                     $worksheet->getRowDimension($i)->setRowHeight(20);
 
@@ -411,7 +421,35 @@ class Home extends BaseController
         if (!empty($input->id)) {
             $data['id'] = $input->id;
         }
+        if (!empty($input->feedback)) {
+            $data['feedback'] = $input->feedback;
+        }
+        $citizenId = $data['citizen_id'];
+        //get user email of citizen
+        $userModel = new UsersModel();
+        $user = $userModel->find($citizenId);
+        $email = $user['email'];
         $mdl->save($data);
+        $statusMesasge = "";
+        //case statement to send email based on status
+        if ($input->status !== 0) {
+            if ($input->status == 1 && !empty($input->citizen_id)) {
+                $statusMesasge = 'Your appointment on VIMMS has been approved, login into your account to check dates and time';
+            } elseif ($input->status == 1 && empty($input->citizen_id)) {
+                $statusMesasge = 'You have been invited to an appointment on VIMMS, login into your account to check dates and time';
+            } elseif ($input->status == 2) {
+                $statusMesasge = 'Your appointment has been marked as complete and closed';
+            } elseif ($input->status == 3) {
+                $statusMesasge = 'Your appointment has been marked as expired and closed';
+            } elseif ($input->status == 4) {
+                $statusMesasge = 'Your appointment has been marked as missed and closed';
+            }
+            $data = [
+                'message' => $statusMesasge
+            ];
+            $message = view('appointment', $data);
+        }
+        $this->sendMail($email,  'Appointment update', $message,);
         return $this->response->setJSON(['message' => 'Appointment created successfully']);
     }
 
@@ -431,6 +469,37 @@ class Home extends BaseController
             $data['time'] = $input->time;
         }
         $mdl->update($input->id, $data);
+        
+
+        $citizenId = $input->citizen_id;
+        //get user email of citizen
+        $userModel = new UsersModel();
+        $user = $userModel->find($citizenId);
+        $email = $user['email'];
+        $statusMesasge = "";
+        //case statement to send email based on status
+        switch ($input->status) {
+            case 1:
+                $statusMesasge = 'Your appointment on VIMMS has been approved, login into your account to check dates and time';
+                break;
+            case 2:
+                $statusMesasge = 'Your appointment has been marked as complete and closed';
+                break;
+            case 3:
+                $statusMesasge = 'Your appointment has been marked as expired and closed';
+                break;
+            case 4:
+                $statusMesasge = 'Your appointment has been marked as missed and closed';
+                break;
+            default:
+                $statusMesasge = 'updated';
+                break;
+        }
+        $data = [
+            'message' => $statusMesasge
+        ];
+        $message = view('appointment', $data);
+        $this->sendMail($email,  'Appointment update', $message,);
         return $this->response->setJSON(['message' => 'Appointment updated successfully']);
     }
 
@@ -442,7 +511,7 @@ class Home extends BaseController
         $input = $this->request->getJSON();
         try {
             $appointment = $mdl->find($input->id);
-            if(!$appointment){
+            if (!$appointment) {
                 return $this->response->setStatusCode(404)->setJSON(['error' => 'Not Found', 'message' => 'Appointment not found']);
             }
             if ($appointment && $appointment['citizen_id'] != $this->accessData->uid) {
@@ -507,9 +576,9 @@ class Home extends BaseController
         }
     }
     // Get all users where status is 4 (active)
-    public function getActiveResidents()
+    public function getActiveResidents($output = 0, $token = "")
     {
-        $this->_secure();
+        $token == "" ? $this->_secure() : $this->_secure($token);
         $mdl = new UsersModel();
         $result = $mdl->select("users.id, users.names, users.email, users.phone, users.id_number, 'Resident' as type, users.status, COALESCE(s.total_issues, 0) as total_issues, COALESCE(s.resolved_issues, 0) as resolved_issues, COALESCE(ap.total_appointments, 0) as total_appointments, COALESCE(ap.approved_appointments, 0) as approved_appointments")
             ->join('issues i', 'i.user_id = users.id', 'left')
@@ -519,9 +588,75 @@ class Home extends BaseController
             ->where('users.type', 4)
             ->groupBy('users.id')
             ->get()->getResultArray();
+
+        if ($output != 0) {
+            try {
+                $spreadsheet = new Spreadsheet();
+                $worksheet = $spreadsheet->getActiveSheet();
+                $styleArray = [
+                    'borders' => [
+                        'allBorders' => [
+                            'borderStyle' => Border::BORDER_HAIR,
+                            'color' => ['argb' => 'FFFFFFFF'],
+                            'size' => $spreadsheet->getDefaultStyle()->getFont()->setSize(14)
+                        ]
+                    ],
+                    'fill' => [
+                        'fillType' => Fill::FILL_SOLID,
+                        'startColor' => ['argb' => 'FF058e8c'],
+                    ],
+                    'font' => [
+                        'bold' => true,
+                        'color' => ['argb' => 'FFFFFFFF'],
+                    ],
+                    'alignment' => [
+                        'vertical' => Alignment::VERTICAL_CENTER
+                    ]
+                ];
+                $worksheet->getStyle('A3:K3')->applyFromArray($styleArray);
+                $worksheet->getCell('A3')->setValue('#');
+                $worksheet->getCell('B3')->setValue('Names');
+                $worksheet->getCell('C3')->setValue('Email');
+                $worksheet->getCell('D3')->setValue('Phone');
+                $worksheet->getCell('E3')->setValue('ID Number');
+                $worksheet->getCell('F3')->setValue('Type');
+                $worksheet->getCell('G3')->setValue('Status');
+                $worksheet->getCell('H3')->setValue('Total Issues');
+                $worksheet->getCell('I3')->setValue('Resolved Issues');
+                $worksheet->getCell('J3')->setValue('Total Appointments');
+                $worksheet->getCell('K3')->setValue('Approved Appointments');
+
+                $i = 4;
+                foreach ($result as $res) {
+                    $worksheet->getCell('A' . $i)->setValue($res['id']);
+                    $worksheet->getCell('B' . $i)->setValue($res['names']);
+                    $worksheet->getCell('C' . $i)->setValue($res['email']);
+                    $worksheet->getCell('D' . $i)->setValue($res['phone']);
+                    $worksheet->getCell('E' . $i)->setValue($res['id_number']);
+                    $worksheet->getCell('F' . $i)->setValue($res['type']);
+                    $worksheet->getCell('G' . $i)->setValue($res['status']);
+                    $worksheet->getCell('H' . $i)->setValue($res['total_issues']);
+                    $worksheet->getCell('I' . $i)->setValue($res['resolved_issues']);
+                    $worksheet->getCell('J' . $i)->setValue($res['total_appointments']);
+                    $worksheet->getCell('K' . $i)->setValue($res['approved_appointments']);
+
+                    $worksheet->getRowDimension($i)->setRowHeight(20);
+
+                    $i++;
+                }
+                $worksheet->setTitle("List of Residents");
+                $worksheet->getTabColor()->setARGB('FF058e8c');
+                $writer = IOFactory::createWriter($spreadsheet, 'Xls');
+                header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                header('Access-Control-Expose-Headers: Content-Disposition');
+                header('Content-Disposition: attachment; filename="List of Residents - ' . date('Y-m-d') . '.xls"');
+                $writer->save("php://output");
+            } catch (\Exception $e) {
+                return $this->response->setStatusCode(500)->setJSON(["message" => $e->getMessage()]);
+            }
+        }
         return $this->response->setJSON($result);
     }
-
     //get all residents for using in form select
     public function getResidents()
     {
@@ -624,7 +759,7 @@ class Home extends BaseController
         $this->_secure();
         $mdl = new UsersModel();
         $input = $this->request->getJSON();
-        if($this->accessData->typ > 2){ //only admin and leader can change user status
+        if ($this->accessData->typ > 2) { //only admin and leader can change user status
             return $this->response->setStatusCode(403)->setJSON(['error' => 'Forbidden', 'message' => 'You are not allowed to change your status']);
         }
         $data = [
@@ -632,5 +767,20 @@ class Home extends BaseController
         ];
         $mdl->update($input->id, $data);
         return $this->response->setJSON(['message' => 'User status updated successfully']);
+    }
+
+    public function editUserInfo()
+    {
+        $this->_secure();
+        $mdl = new UsersModel();
+        $input = $this->request->getJSON();
+        $data = [
+            'id' => $input->id,
+            'names' => $input->names,
+            'phone' => $input->phone,
+            'email' => $input->email,
+        ];
+        $mdl->save($data);
+        return $this->response->setJSON(['message' => 'User updated successfully']);
     }
 }
